@@ -1,0 +1,302 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum EmployeeRole {
+  EMPLOYEE
+  ADMINISTRATOR
+}
+
+enum EmployeeStatus {
+  INVITED
+  ACTIVE
+  DEACTIVATED
+}
+
+enum AttendanceStatus {
+  IN_PROGRESS
+  PRESENT
+  ABSENT
+  LATE
+  LEAVE
+  HALF_DAY
+  REMOTE_WORK
+}
+
+enum AttendanceType {
+  OFFICE
+  REMOTE
+}
+
+enum AttendanceEventType {
+  LOGIN
+  LOGOUT
+  CHECK_IN
+  CHECK_OUT
+  CORRECTION
+  PASSWORD_CHANGE
+  LEAVE_REQUEST
+  EMPLOYEE_CREATED
+  EMPLOYEE_UPDATED
+  LOCATION_UPDATED
+  SESSION_REFRESH
+}
+
+enum NotificationChannel {
+  EMAIL
+  PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+model Organization {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name               String              @db.VarChar(160)
+  slug               String              @unique @db.VarChar(80)
+  timezone           String              @default("UTC") @db.VarChar(64)
+  settings           Json                @default("{\"attendanceMode\":\"OFFICE\",\"shiftStart\":\"09:00\",\"lateGraceMinutes\":5,\"maxGpsAccuracyMeters\":100}") @db.JsonB
+  employees          Employee[]
+  departments        Department[]
+  locations          OfficeLocation[]
+  attendanceRecords AttendanceRecord[]
+  attendanceEvents  AttendanceEvent[]
+  userSessions       UserSession[]
+  auditLogs          AuditLog[]
+  notifications      Notification[]
+  invites            OrganizationInvite[]
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("organizations")
+}
+
+model Department {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String     @map("organization_id") @db.Uuid
+  name           String     @db.VarChar(120)
+  description    String?    @db.VarChar(500)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employees      Employee[]
+  invites        OrganizationInvite[]
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, name])
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@map("departments")
+}
+
+model Employee {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String         @map("organization_id") @db.Uuid
+  supabaseUserId  String         @unique @map("supabase_user_id") @db.Uuid
+  employeeNumber  String         @map("employee_number") @db.VarChar(40)
+  fullName        String         @map("full_name") @db.VarChar(160)
+  email           String         @db.VarChar(320)
+  phone           String?        @db.VarChar(32)
+  departmentId    String?        @map("department_id") @db.Uuid
+  designation     String         @db.VarChar(120)
+  wfhEnabled      Boolean        @default(false) @map("wfh_enabled")
+  role            EmployeeRole   @default(EMPLOYEE)
+  status          EmployeeStatus @default(INVITED)
+  deactivatedAt   DateTime?      @map("deactivated_at") @db.Timestamptz(6)
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  department      Department?   @relation(fields: [organizationId, departmentId], references: [organizationId, id], onDelete: Restrict)
+  attendance      AttendanceRecord[]
+  attendanceEvents AttendanceEvent[] @relation("AttendanceSubject")
+  actedEvents     AttendanceEvent[] @relation("AttendanceActor")
+  sessions        UserSession[]
+  auditActions    AuditLog[]     @relation("AuditActor")
+  notifications   Notification[]
+  createdInvites  OrganizationInvite[] @relation("InviteCreator")
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, employeeNumber])
+  @@unique([organizationId, email])
+  @@index([organizationId, status, fullName])
+  @@index([organizationId, departmentId, status])
+  @@map("employees")
+}
+
+model OfficeLocation {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  name           String             @db.VarChar(120)
+  latitude       Decimal            @db.Decimal(9, 6)
+  longitude      Decimal            @db.Decimal(9, 6)
+  radiusMeters   Int                @default(100) @map("radius_meters")
+  active         Boolean            @default(true)
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  attendances    AttendanceRecord[]
+  events         AttendanceEvent[]
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+  @@map("office_locations")
+}
+
+model AttendanceRecord {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String           @map("organization_id") @db.Uuid
+  employeeId        String           @map("employee_id") @db.Uuid
+  workDate          DateTime         @map("work_date") @db.Date
+  checkInAt         DateTime?        @map("check_in_at") @db.Timestamptz(6)
+  checkOutAt        DateTime?        @map("check_out_at") @db.Timestamptz(6)
+  totalWorkMinutes  Int?             @map("total_work_minutes")
+  lateMinutes       Int              @default(0) @map("late_minutes")
+  status            AttendanceStatus @default(IN_PROGRESS)
+  attendanceType    AttendanceType   @default(OFFICE) @map("attendance_type")
+  checkInLocationId String?          @map("check_in_location_id") @db.Uuid
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employee          Employee         @relation(fields: [organizationId, employeeId], references: [organizationId, id], onDelete: Restrict)
+  checkInLocation   OfficeLocation?  @relation(fields: [organizationId, checkInLocationId], references: [organizationId, id], onDelete: Restrict)
+  events            AttendanceEvent[]
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, employeeId, workDate])
+  @@index([organizationId, workDate, status])
+  @@index([organizationId, employeeId, workDate(sort: Desc)])
+  @@map("attendance")
+}
+
+model AttendanceEvent {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String              @map("organization_id") @db.Uuid
+  attendanceId    String?             @map("attendance_id") @db.Uuid
+  employeeId      String              @map("employee_id") @db.Uuid
+  actorEmployeeId String?             @map("actor_employee_id") @db.Uuid
+  locationId      String?             @map("location_id") @db.Uuid
+  type            AttendanceEventType
+  occurredAt      DateTime            @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  latitude        Decimal?            @db.Decimal(9, 6)
+  longitude       Decimal?            @db.Decimal(9, 6)
+  accuracyMeters  Decimal?            @map("accuracy_meters") @db.Decimal(8, 2)
+  distanceMeters  Decimal?            @map("distance_meters") @db.Decimal(10, 2)
+  ipHash          String?             @map("ip_hash") @db.VarChar(128)
+  browser         String?             @db.VarChar(160)
+  device          String?             @db.VarChar(160)
+  metadata        Json                @default("{}") @db.JsonB
+  requestId       String?             @map("request_id") @db.VarChar(80)
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  attendance      AttendanceRecord?   @relation(fields: [organizationId, attendanceId], references: [organizationId, id], onDelete: Restrict)
+  employee        Employee            @relation("AttendanceSubject", fields: [organizationId, employeeId], references: [organizationId, id], onDelete: Restrict)
+  actor           Employee?           @relation("AttendanceActor", fields: [organizationId, actorEmployeeId], references: [organizationId, id], onDelete: Restrict)
+  location        OfficeLocation?     @relation(fields: [organizationId, locationId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, occurredAt(sort: Desc)])
+  @@index([organizationId, employeeId, occurredAt(sort: Desc)])
+  @@index([attendanceId, occurredAt])
+  @@map("attendance_events")
+}
+
+model UserSession {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String        @map("organization_id") @db.Uuid
+  employeeId        String        @map("employee_id") @db.Uuid
+  sessionKeyHash    String        @map("session_key_hash") @db.VarChar(128)
+  loginAt           DateTime      @default(now()) @map("login_at") @db.Timestamptz(6)
+  logoutAt          DateTime?     @map("logout_at") @db.Timestamptz(6)
+  ipHash            String?       @map("ip_hash") @db.VarChar(128)
+  browser           String?       @db.VarChar(160)
+  device            String?       @db.VarChar(160)
+  latitude          Decimal?      @db.Decimal(9, 6)
+  longitude         Decimal?      @db.Decimal(9, 6)
+  organization      Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employee          Employee      @relation(fields: [organizationId, employeeId], references: [organizationId, id], onDelete: Restrict)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([organizationId, id])
+  @@unique([employeeId, sessionKeyHash])
+  @@index([organizationId, loginAt(sort: Desc)])
+  @@index([organizationId, employeeId, loginAt(sort: Desc)])
+  @@map("user_sessions")
+}
+
+model AuditLog {
+  id              BigInt       @id @default(autoincrement())
+  organizationId  String?      @map("organization_id") @db.Uuid
+  actorEmployeeId String?      @map("actor_employee_id") @db.Uuid
+  action          String       @db.VarChar(80)
+  entityType      String       @map("entity_type") @db.VarChar(80)
+  entityId        String?      @map("entity_id") @db.VarChar(80)
+  previousValues  Json?        @map("previous_values") @db.JsonB
+  newValues       Json?        @map("new_values") @db.JsonB
+  reason          String?      @db.VarChar(1000)
+  ipHash          String?      @map("ip_hash") @db.VarChar(128)
+  device          String?      @db.VarChar(160)
+  location        Json?        @db.JsonB
+  requestId       String?      @map("request_id") @db.VarChar(80)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actor           Employee?    @relation("AuditActor", fields: [organizationId, actorEmployeeId], references: [organizationId, id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([organizationId, actorEmployeeId, createdAt(sort: Desc)])
+  @@index([organizationId, entityType, entityId])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  employeeId     String             @map("employee_id") @db.Uuid
+  channel        NotificationChannel
+  eventType      String             @map("event_type") @db.VarChar(80)
+  title          String             @db.VarChar(160)
+  body           String             @db.VarChar(2000)
+  status         NotificationStatus @default(PENDING)
+  attempts       Int                @default(0)
+  nextAttemptAt  DateTime           @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  sentAt         DateTime?          @map("sent_at") @db.Timestamptz(6)
+  lastError      String?            @map("last_error") @db.VarChar(1000)
+  metadata       Json               @default("{}") @db.JsonB
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employee       Employee           @relation(fields: [organizationId, employeeId], references: [organizationId, id], onDelete: Restrict)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, nextAttemptAt])
+  @@index([organizationId, employeeId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+model OrganizationInvite {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId     String      @map("organization_id") @db.Uuid
+  email              String      @db.VarChar(320)
+  employeeNumber     String      @map("employee_number") @db.VarChar(40)
+  departmentId       String?     @map("department_id") @db.Uuid
+  designation        String      @db.VarChar(120)
+  codeHash           String      @unique @map("code_hash") @db.VarChar(128)
+  createdByEmployeeId String     @map("created_by_employee_id") @db.Uuid
+  expiresAt          DateTime    @map("expires_at") @db.Timestamptz(6)
+  redeemedAt         DateTime?   @map("redeemed_at") @db.Timestamptz(6)
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  department         Department?  @relation(fields: [organizationId, departmentId], references: [organizationId, id], onDelete: Restrict)
+  creator            Employee    @relation("InviteCreator", fields: [organizationId, createdByEmployeeId], references: [organizationId, id], onDelete: Restrict)
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, email, redeemedAt])
+  @@index([organizationId, expiresAt])
+  @@map("organization_invites")
+}

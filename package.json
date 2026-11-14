@@ -1,0 +1,17 @@
+{
+  "name": "attendflow-platform",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": ["apps/web", "apps/api"],
+  "scripts": {
+    "dev": "concurrently -n web,api -c blue,green \"npm:dev:web\" \"npm:dev:api\"",
+    "dev:web": "npm --workspace @attendflow/web run dev",
+    "dev:api": "npm --workspace @attendflow/api run start:dev",
+    "build": "npm run build --workspace @attendflow/api && npm run build --workspace @attendflow/web",
+    "lint": "npm run lint --workspace @attendflow/api && npm run lint --workspace @attendflow/web",
+    "db:generate": "npm run prisma:generate --workspace @attendflow/api",
+    "db:migrate:deploy": "npm run db:migrate:deploy --workspace @attendflow/api"
+  },
+  "devDependencies": { "concurrently": "^9.1.2" },
+  "engines": { "node": ">=20.11" }
+}
