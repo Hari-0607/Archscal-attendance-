@@ -21,7 +21,7 @@ The initial SQL migration references `auth.users`; use a Supabase project rather
 
 ## Railway API
 
-Create a Railway service from the repository root using `apps/api/Dockerfile`. Set:
+Create a Railway service from the GitHub repository with the repository root as its source directory. Set the service variable `RAILWAY_DOCKERFILE_PATH=apps/api/Dockerfile` so Railway uses the API container in this monorepo. Set the healthcheck path to `/api/v1/health/ready`. Set:
 
 - `NODE_ENV=production`
 - `PORT` to Railway's injected port (the app defaults to `4000`)

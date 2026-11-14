@@ -16,7 +16,8 @@ COPY package.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY prisma prisma
-RUN npm install --omit=dev --workspace @attendflow/api && npm run prisma:generate --workspace @attendflow/api && npm cache clean --force
+RUN npm install --omit=dev --workspace @attendflow/api && npm cache clean --force
+COPY --from=build /srv/node_modules/.prisma/client /srv/node_modules/.prisma/client
 COPY --from=build /srv/apps/api/dist apps/api/dist
 USER node
 EXPOSE 4000
