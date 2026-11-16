@@ -9,7 +9,8 @@ AttendFlow is an employee attendance management system built around **Next.js 15
 - [`docs/module-guide.md`](docs/module-guide.md) — module-by-module explanation of the application files.
 - [`prisma/schema.prisma`](prisma/schema.prisma) — normalized business data models.
 - [`prisma/migrations/`](prisma/migrations/) — initial schema and database invariants.
-- [`apps/api/src/workforce.controller.ts`](apps/api/src/workforce.controller.ts) — Prisma-backed attendance and admin API routes.
+- [`apps/api/src/workforce.controller.ts`](apps/api/src/workforce.controller.ts) — versioned HTTP routes and request DTOs.
+- [`apps/api/src/workforce/workforce.service.ts`](apps/api/src/workforce/workforce.service.ts) — organization-scoped use cases and RLS-aware Prisma transactions.
 - [`apps/web/`](apps/web/) — Next.js web application and dashboard UI.
 
 ## Local setup
@@ -22,6 +23,12 @@ AttendFlow is an employee attendance management system built around **Next.js 15
 
 Supabase's `auth.users` table is referenced by the migration. This schema is not a generic PostgreSQL bootstrap. See the deployment guide for production secrets, networking, migrations, and health checks.
 
-## Delivery status
+## Readiness status
 
-The repository contains the architecture and Prisma model, database migrations, a Supabase JWT guard, a Prisma service, and initial Prisma-backed workforce routes. It also contains a substantial earlier UI and a legacy Supabase-JS API scaffold. **Those legacy UI/API paths have not yet been fully migrated to the Prisma contract**, and the application has not been built against a live Supabase project or deployed. Treat this as an implementation foundation, not a production launch. The docs identify the remaining integration and operational work.
+The active API and web screens now use the workforce contract; the incompatible legacy API and schema were removed. The repository includes RLS-scoped Prisma transactions, Supabase Auth token verification, role checks, attendance security functions, migration rollback instructions, health/readiness checks, throttling, request logs, Sentry hooks, Prometheus metrics, and native Node policy tests.
+
+This is **not yet certified for production traffic**. Unit tests, TypeScript checks, and optimized API/web builds pass, but the migrations have not been applied or exercised against Supabase; there are no live API integration or browser E2E tests or representative load results. The frontend audit advisory below also blocks release. Resolve these items in staging, configure the production secrets described in [`docs/deployment.md`](docs/deployment.md), then deploy a reviewed commit.
+
+The current npm audit reports **one high-severity advisory in the Next.js 15 runtime tree**: Next.js 15.5.29 pins vulnerable PostCSS 8.4.31. npm only offers an automatic fix by upgrading Next.js to 16, which conflicts with the requested Next.js 15 stack. The API runtime dependency tree audits clean; resolve the frontend advisory or approve the framework upgrade before production traffic.
+
+Run `npm test` for the dependency-free date, geofence, work-duration, and daily summary tests. `npm run db:seed --workspace @attendflow/api` can seed a development organization for an existing Supabase Auth user; it refuses to run when `NODE_ENV=production`.

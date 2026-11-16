@@ -1,6 +1,8 @@
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
-import type { ThrottlerStorage, ThrottlerStorageRecord } from "@nestjs/throttler";
+import type { ThrottlerStorage } from "@nestjs/throttler";
 import Redis from "ioredis";
+
+type ThrottlerStorageRecord = Awaited<ReturnType<ThrottlerStorage["increment"]>>;
 
 @Injectable()
 export class RedisThrottlerStorage implements ThrottlerStorage, OnModuleDestroy {
@@ -25,5 +27,13 @@ export class RedisThrottlerStorage implements ThrottlerStorage, OnModuleDestroy 
     return { totalHits: Number(result[0]), timeToExpire: Math.max(0, Number(result[1])), isBlocked: Number(result[2]) === 1, timeToBlockExpire: Math.max(0, Number(result[3])) };
   }
 
-  async onModuleDestroy() { await this.redis.quit(); }
+  async healthCheck() {
+    if (this.redis.status === "wait") await this.redis.connect();
+    return (await this.redis.ping()) === "PONG";
+  }
+
+  async onModuleDestroy() {
+    if (this.redis.status === "wait" || this.redis.status === "end") this.redis.disconnect();
+    else await this.redis.quit();
+  }
 }

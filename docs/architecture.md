@@ -2,13 +2,13 @@
 
 ## Scope and decisions
 
-This baseline follows the latest pasted request. The application serves two organization-scoped roles: **Employee** and **Administrator**. It covers employee registration and account access, attendance with office geofencing, attendance history/calendar, employee and department administration, immutable audit history, notifications, reports and analytics. The earlier 10,000-concurrent-user objective remains a capacity target; no throughput claim is made until a representative load test passes.
+The application serves two organization-scoped roles: **Employee** and **Administrator**. The current implementation covers account registration/login, office geofencing, approved WFH attendance, date-range history/export, invitations, employees, departments, locations, and an admin daily summary. Calendar grids, leave, shifts, a browsable audit log, email delivery, and richer reports are not included. The earlier 10,000-concurrent-user objective remains unvalidated; no throughput claim is made until representative load tests pass.
 
-The stack is Next.js 15, React, TypeScript, Tailwind, shadcn/ui, TanStack React Query and Zustand; a NestJS TypeScript API; PostgreSQL on Supabase with Prisma; Supabase Auth; Supabase Storage for future user-approved attachments; Railway for the API; and Vercel for the web application. Redis remains the shared rate-limit/cache option from the earlier requirements. Sentry captures errors. PostHog is opt-in and receives coarse product events only; it must not receive attendance, location, employee identity, email or device data.
+The active stack is Next.js 15, React, TypeScript and Tailwind; NestJS; Supabase PostgreSQL with Prisma; Supabase Auth; Railway; and Vercel. Redis provides shared rate limiting. Sentry is optional and redacts request and exception messages before sending. There are no upload endpoints or analytics tracking in the current UI.
 
 ### Current workspace assessment
 
-The repository contains an early Next.js/NestJS UI and a legacy Supabase-JS API alongside the Prisma data model. The Prisma-backed workforce controller is an initial module; the legacy UI/API and Prisma API are not fully integrated. Static files and `attendflow-zip/` are not application modules.
+The active web interface and NestJS API now share the Prisma workforce contract. The competing Supabase-JS API and its separate SQL schema were removed. The implemented surface is a focused first release; calendar grids, leave, shift schedules, audit browsing and richer reporting remain outside this build. Static files and `attendflow-zip/` are not application modules.
 
 ## High-level architecture
 
@@ -18,7 +18,7 @@ flowchart LR
   Admin[Administrator browser] -->|HTTPS| Vercel
   Vercel -->|Supabase Auth SDK: email/password, refresh| Auth[Supabase Auth]
   Vercel -->|JWT bearer, HTTPS| Railway[NestJS API on Railway]
-  Railway -->|Validate JWT / JWKS| Auth
+  Railway -->|Verify bearer token via Auth API| Auth
   Railway -->|Prisma over TLS + pooled connection| DB[(Supabase PostgreSQL)]
   DB --> RLS[Row-level security + constraints + triggers]
   Railway -->|Transactional notification outbox| DB
@@ -207,7 +207,7 @@ sequenceDiagram
 
 The following contract is the planned complete API. Only the initial `/api/v1/workforce/*` routes documented below are currently implemented; do not treat the entire table as live.
 
-All application endpoints use `/v1`, JSON, HTTPS and a Supabase access token in `Authorization: Bearer <JWT>`. The API obtains identity from a verified token. Employee and organization IDs in request bodies are never treated as authorization proof. Mutations use `Idempotency-Key` for attendance writes. Errors use `{ "code": "...", "message": "...", "requestId": "..." }`.
+All application endpoints use `/api/v1`, JSON, HTTPS and a Supabase access token in `Authorization: Bearer <JWT>`. The API obtains identity from a verified token. Employee and organization IDs in request bodies are never treated as authorization proof. Mutations use `Idempotency-Key` for attendance writes. Errors use `{ "statusCode": 400, "error": "Bad Request", "message": "...", "requestId": "...", "timestamp": "..." }`.
 
 | Method and path | Role | Contract summary |
 |---|---|---|
@@ -241,7 +241,7 @@ Authentication registration/login/password reset use Supabase Auth SDK. Backend 
 3. Check-out requires an open check-in; duplicate check-in/out returns conflict and does not create duplicate events.
 4. GPS must include a fresh accuracy value within configured bounds. Distance uses a server-side geodesic calculation against active organization locations and their individual radii.
 5. The server chooses the matching office location; it never trusts a client-submitted location ID as proof of proximity.
-6. The initial Prisma check-in and check-out routes write the attendance row, attendance event and audit log in one transaction. Notification outbox delivery is designed but not yet connected to these routes.
+6. Database SECURITY DEFINER check-in/check-out functions enforce attendance invariants and append events inside the same transaction. Database audit triggers capture mutable row changes; notification outbox delivery is not connected in this release.
 7. Attendance correction requires an administrator reason and keeps old/new snapshots in an append-only audit event.
 
 ## Intended data ownership and security model
@@ -249,7 +249,7 @@ Authentication registration/login/password reset use Supabase Auth SDK. Backend 
 - Supabase Auth owns credentials, password hashing, email verification, refresh-token rotation and recovery. Prisma owns business data only.
 - `Employee.supabaseUserId` is unique and references `auth.users(id)` in SQL. The API validates the JWT and maps it to exactly one active organization employee.
 - Every tenant-owned row includes `organizationId`. Unique keys and foreign keys carry organization scope where relevant.
-- PostgreSQL RLS is enabled for tenant tables. The current Prisma controller checks organization membership and admin roles in Nest; it does not yet set transaction-local JWT claims for PostgreSQL or execute under a dedicated non-bypass RLS database role. Production deployment must not use a database owner credential for request handling until that boundary is implemented.
+- PostgreSQL RLS is enabled for tenant tables. Each authenticated Prisma transaction switches locally to the `authenticated` role and sets the verified caller's JWT claims before querying. The Railway runtime credential must be constrained so it can assume only that role; do not provide a database owner credential to the public API process. Confirm role behavior against the production pooler in staging.
 - Admin authorization is checked in Nest use cases and reinforced in RLS. Hiding controls in React is never authorization.
 - `audit_logs` and `attendance_events` are append-only: application grants omit update/delete; SQL triggers reject mutation. Soft-deactivation preserves history.
 - GPS data is collected for the attendance check only. Keep raw coordinates only on attendance events when the company policy requires it, restrict access, and set retention. Hash IP addresses with a rotating server secret; never persist raw IP by default.
@@ -287,9 +287,9 @@ docs/                         Architecture, API contracts, rollout/runbooks
 infra/                        Railway/Vercel/monitoring configuration
 ```
 
-`apps/api/src/attendance.controller.ts`, `supabase.service.ts`, and dashboard components still implement an earlier Supabase schema. `apps/api/src/workforce.controller.ts` and `prisma.service.ts` are the initial Prisma-backed module. Split controllers into domain modules and complete the API/UI integration before production use.
+The active modules are `apps/api/src/workforce.controller.ts`, `apps/api/src/workforce/workforce.service.ts`, and `apps/api/src/prisma.service.ts`. The web client uses the same workforce API contract. Further domain-module splitting is a maintainability improvement, not a prerequisite for the staging validation listed in `docs/deployment.md`.
 
-## Implemented Prisma API (initial module)
+## Implemented API
 
 All routes are prefixed with `/api/v1`, require a valid Supabase bearer token, and derive the employee from the authenticated Supabase user ID. The API validates membership and role in the selected organization.
 
@@ -297,17 +297,24 @@ All routes are prefixed with `/api/v1`, require a valid Supabase bearer token, a
 |---|---|---|
 | `GET /api/v1/workforce/me` | Employee/Admin | List the signed-in user's active employee profiles and organizations. |
 | `POST /api/v1/workforce/invites/:organizationId` | Admin | Create a seven-day, single-use invitation; returns the one-time raw code. |
-| `POST /api/v1/workforce/invites/:organizationId/redeem` | Authenticated invitee | Redeem an invite for the matching verified email and create the employee profile. |
+| `POST /api/v1/workforce/invites/redeem` | Authenticated invitee | Redeem an invite for the matching verified email and create the employee profile. |
+| `POST /api/v1/workforce/organizations` | Verified user without a profile | Create the first organization administrator through a SECURITY DEFINER database function. |
 | `GET /api/v1/workforce/:organizationId/dashboard?date=` | Admin | Return daily records and present, absent, WFH and late totals. |
-| `GET /api/v1/workforce/:organizationId/attendance?from=&to=&employeeId=` | Employee/Admin | Query own history or an admin-filtered organization date range. |
+| `GET /api/v1/workforce/:organizationId/attendance?from=&to=&employeeId=` | Employee/Admin | Query up to 366 days of own history or an admin-filtered organization date range. |
 | `POST /api/v1/workforce/attendance/check-in` | Employee | Validate GPS accuracy and office radius, or approved WFH permission; write record, event and audit log. |
 | `POST /api/v1/workforce/attendance/check-out` | Employee | Office check-out requires GPS coordinates/accuracy and radius validation; WFH close does not require GPS. Writes event and audit log. |
 | `POST /api/v1/workforce/:organizationId/departments` | Admin | Create a department. |
 | `POST /api/v1/workforce/:organizationId/locations` | Admin | Create an office geofence. |
 | `GET /api/v1/workforce/:organizationId/employees` | Admin | List organization employees. |
+| `PATCH /api/v1/workforce/:organizationId/employees/:employeeId` | Admin | Update profile and active/deactivated status. |
 | `PATCH /api/v1/workforce/:organizationId/employees/:employeeId/wfh` | Admin | Set an employee's WFH permission with an audit record. |
+| `GET /api/v1/workforce/:organizationId/departments` | Member | List department names. |
+| `GET /api/v1/workforce/:organizationId/locations` | Member | List active office locations; coordinates are returned only to admins. |
+| `PATCH /api/v1/workforce/:organizationId/locations/:locationId` | Admin | Update office geofence and active state. |
 | `POST /api/v1/workforce/:organizationId/attendance/:attendanceId/correction` | Admin | Correct check-in/out timestamps with a required reason and audit record. |
-| `GET /api/v1/health/ready` | Public/internal | Check PostgreSQL connectivity. |
+| `GET /api/v1/health/ready` | Public/internal | Check PostgreSQL and required production Redis connectivity. |
+
+Attendance writes require an `Idempotency-Key` header (16–80 alphanumeric or `._:-` characters). The same key and operation returns the original attendance row. Employee or organization IDs do not authorize access; each endpoint checks active membership and administrator role, and database RLS provides a second tenant boundary.
 
 These routes are an initial slice, not feature-complete API coverage. Employee editing/deactivation, department/location update, calendar-specific aggregation, monthly/yearly report exports, idempotency, transaction-local RLS context, and the remaining dashboard UI integration are outstanding.
 

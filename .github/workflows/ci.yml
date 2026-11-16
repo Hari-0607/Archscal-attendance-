@@ -17,7 +17,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build
+          DIRECT_URL: postgresql://build:build@127.0.0.1:5432/build
+      - run: npm test
+      - run: npm run lint
       - run: npm run build
   deploy-web:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.VERCEL_DEPLOY_ENABLED == 'true'
@@ -28,7 +34,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Link Vercel project
         working-directory: apps/web
         env:

@@ -279,6 +279,10 @@ BEGIN
     v_old := CASE WHEN v_old IS NULL THEN NULL ELSE v_old - 'session_key_hash' - 'latitude' - 'longitude' - 'ip_hash' END;
     v_new := CASE WHEN v_new IS NULL THEN NULL ELSE v_new - 'session_key_hash' - 'latitude' - 'longitude' - 'ip_hash' END;
   END IF;
+  IF TG_TABLE_NAME='organization_invites' THEN
+    v_old := CASE WHEN v_old IS NULL THEN NULL ELSE v_old - 'code_hash' END;
+    v_new := CASE WHEN v_new IS NULL THEN NULL ELSE v_new - 'code_hash' END;
+  END IF;
   v_org := CASE WHEN TG_TABLE_NAME='organizations' THEN nullif(v_row->>'id','')::uuid ELSE nullif(v_row->>'organization_id','')::uuid END;
   v_entity_id := coalesce(v_row->>'id','');
   v_employee := CASE WHEN auth.uid() IS NULL THEN NULL ELSE public.current_employee_id(v_org) END;
