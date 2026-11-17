@@ -19,7 +19,7 @@ COPY package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY prisma prisma
-RUN npm ci --ignore-scripts --omit=dev --omit=optional --workspace @attendflow/api --include-workspace-root=false --no-audit --no-fund && npm cache clean --force
+RUN npm ci --ignore-scripts --include=dev --omit=optional --workspace @attendflow/api --include-workspace-root=false --no-audit --no-fund && npm cache clean --force
 COPY --from=build /srv/node_modules/.prisma/client /srv/node_modules/.prisma/client
 COPY --from=build /srv/apps/api/dist apps/api/dist
 USER node
