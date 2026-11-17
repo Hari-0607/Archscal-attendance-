@@ -21,6 +21,7 @@ COPY apps/web/package.json apps/web/package.json
 COPY prisma prisma
 RUN npm ci --ignore-scripts --omit=dev --omit=optional --workspace @attendflow/api --include-workspace-root=false --no-audit --no-fund && npm cache clean --force
 COPY --from=build /srv/node_modules/.prisma/client /srv/node_modules/.prisma/client
+COPY --from=build /srv/node_modules/@prisma/engines /srv/node_modules/@prisma/engines
 COPY --from=build /srv/apps/api/dist apps/api/dist
 USER node
 EXPOSE 4000
