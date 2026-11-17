@@ -1,7 +1,7 @@
 {
   "name": "@attendflow/api",
   "private": true,
-  "scripts": { "start:dev": "nest start --watch", "build": "nest build", "start": "node dist/main.js", "lint": "tsc --noEmit -p tsconfig.json", "test": "node --test test/*.test.cjs", "prisma:generate": "prisma generate --schema ../../prisma/schema.prisma", "db:migrate:deploy": "prisma migrate deploy --schema ../../prisma/schema.prisma", "db:migrate:dev": "prisma migrate dev --schema ../../prisma/schema.prisma", "db:seed": "node ../../prisma/seed.cjs" },
+  "scripts": { "start:dev": "nest start --watch", "prebuild": "npm run prisma:generate", "build": "nest build", "start": "node dist/main.js", "lint": "tsc --noEmit -p tsconfig.json", "test": "node --test test/*.test.cjs", "prisma:generate": "prisma generate --schema ../../prisma/schema.prisma", "db:migrate:deploy": "prisma migrate deploy --schema ../../prisma/schema.prisma", "db:migrate:dev": "prisma migrate dev --schema ../../prisma/schema.prisma", "db:seed": "node ../../prisma/seed.cjs" },
   "dependencies": { "@nestjs/common": "^11.0.11", "@nestjs/core": "^11.0.11", "@nestjs/platform-express": "^11.0.11", "@nestjs/throttler": "^6.4.0", "@prisma/client": "^6.5.0", "@sentry/node": "^11.13.0", "@supabase/supabase-js": "^2.49.4", "class-transformer": "^0.5.1", "class-validator": "^0.14.1", "helmet": "^8.1.0", "ioredis": "^5.6.0", "prom-client": "^15.1.3", "reflect-metadata": "^0.2.2", "rxjs": "^7.8.2" },
   "devDependencies": { "@nestjs/cli": "^11.0.5", "@nestjs/schematics": "^11.0.3", "@nestjs/testing": "^11.0.11", "@types/express": "^5.0.0", "@types/node": "^22.13.10", "eslint": "^9.22.0", "prisma": "^6.5.0", "typescript": "^5.8.2" }
 }
